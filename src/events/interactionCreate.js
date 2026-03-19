@@ -1,4 +1,3 @@
-
 import db from '../database/db.js';
 import { buildTable } from '../services/tableService.js';
 import {
@@ -14,6 +13,9 @@ export default {
 
   async execute(interaction) {
     try {
+      // =========================
+      // 💬 КОМАНДЫ
+      // =========================
       if (interaction.isChatInputCommand()) {
         const command = interaction.client.commands.get(interaction.commandName);
         if (command) {
@@ -28,9 +30,7 @@ export default {
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
 
-        // =========================
-        // 🟢 ОНЛАЙН → МОДАЛКА ВРЕМЕНИ
-        // =========================
+        // 🟢 ОНЛАЙН → МОДАЛКА
         if (interaction.customId === 'online') {
           const modal = new ModalBuilder()
             .setCustomId(`online_modal_${interaction.message.id}`)
@@ -38,7 +38,7 @@ export default {
 
           const input = new TextInputBuilder()
             .setCustomId('time_input')
-            .setLabel('Например 12:00-22:00')
+            .setLabel('Формат: 10:00-22:00')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
 
@@ -47,9 +47,7 @@ export default {
           return interaction.showModal(modal);
         }
 
-        // =========================
-        // 🟡 ФОРС → ПРИЧИНА
-        // =========================
+        // 🟡 ФОРС → МОДАЛКА
         if (interaction.customId === 'afk') {
           const modal = new ModalBuilder()
             .setCustomId(`afk_modal_${interaction.message.id}`)
@@ -66,9 +64,7 @@ export default {
           return interaction.showModal(modal);
         }
 
-        // =========================
         // 🔴 ОФФЛАЙН
-        // =========================
         if (interaction.customId === 'offline') {
           const name = interaction.member.displayName;
           const today = new Date().toLocaleDateString('ru-RU');
@@ -76,32 +72,13 @@ export default {
           await new Promise((resolve, reject) => {
             db.run(
               `UPDATE users SET status=?, name=?, date=? WHERE user_id=? AND guild_id=?`,
-              ['offline', name, today, interaction.user.id, interaction.guild.id],
+              ['offline', name, today, userId, guildId],
               err => (err ? reject(err) : resolve())
             );
           });
 
           const table = await buildTable(guildId);
           return interaction.update(table);
-        }
-
-        // =========================
-        // 🔵 ПРАЙМ-ТАЙМ (ручное изменение)
-        // =========================
-        if (interaction.customId === 'time') {
-          const modal = new ModalBuilder()
-            .setCustomId(`time_modal_${interaction.message.id}`)
-            .setTitle('Изменить прайм-тайм');
-
-          const input = new TextInputBuilder()
-            .setCustomId('time_input')
-            .setLabel('Новое время')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true);
-
-          modal.addComponents(new ActionRowBuilder().addComponents(input));
-
-          return interaction.showModal(modal);
         }
       }
 
@@ -119,12 +96,20 @@ export default {
             db.run(sql, params, err => (err ? reject(err) : resolve()))
           );
 
-        // =========================
-        // 🟢 ОНЛАЙН (создаёт запись + время)
-        // =========================
+        // 🟢 ОНЛАЙН
         if (interaction.customId.startsWith('online_modal_')) {
           const messageId = interaction.customId.split('_')[2];
           const time = interaction.fields.getTextInputValue('time_input');
+
+          // 🔒 ВАЛИДАЦИЯ ВРЕМЕНИ
+          const timeRegex = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+          if (!timeRegex.test(time)) {
+            return interaction.reply({
+              content: '❌ Неверный формат времени!\nПример: 10:00-22:00',
+              ephemeral: true
+            });
+          }
 
           await run(
             `INSERT INTO users (user_id, guild_id, name, status, time, date)
@@ -155,9 +140,7 @@ export default {
           });
         }
 
-        // =========================
-        // 🟡 ФОРС (НЕ трогаем время)
-        // =========================
+        // 🟡 ФОРС
         if (interaction.customId.startsWith('afk_modal_')) {
           const messageId = interaction.customId.split('_')[2];
           const reason = interaction.fields.getTextInputValue('reason_input');
@@ -173,28 +156,6 @@ export default {
 
           return interaction.reply({
             content: '🟡 Форс поставлен',
-            ephemeral: true
-          });
-        }
-
-        // =========================
-        // 🔵 ПРАЙМ-ТАЙМ (обновляет только время)
-        // =========================
-        if (interaction.customId.startsWith('time_modal_')) {
-          const messageId = interaction.customId.split('_')[2];
-          const time = interaction.fields.getTextInputValue('time_input');
-
-          await run(
-            `UPDATE users SET time=? WHERE user_id=? AND guild_id=?`,
-            [time, userId, guildId]
-          );
-
-          const table = await buildTable(guildId);
-          const msg = await interaction.channel.messages.fetch(messageId);
-          if (msg) await msg.edit(table);
-
-          return interaction.reply({
-            content: '⏱ Прайм-тайм обновлён',
             ephemeral: true
           });
         }
@@ -214,4 +175,3 @@ export default {
     }
   }
 };
-

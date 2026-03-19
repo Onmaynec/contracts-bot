@@ -1,4 +1,3 @@
-
 import sqlite3 from 'sqlite3';
 
 const db = new sqlite3.Database('./database.sqlite', (err) => {
@@ -10,10 +9,11 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
 });
 
 // =========================
-// 🧱 ИНИЦИАЛИЗАЦИЯ БД
+// 📦 ИНИЦИАЛИЗАЦИЯ БД
 // =========================
 db.serialize(() => {
-  // 🆕 создаём таблицу если нет
+
+  // 👤 таблица пользователей
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,12 +27,22 @@ db.serialize(() => {
     )
   `);
 
-  // 🔥 уникальность (фикс дублей)
+  // 🔒 уникальность (фикс дублей)
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_user_guild
     ON users(user_id, guild_id)
   `);
+
+  // ⚙️ таблица настроек (ВОТ ЧЕГО ТЕБЕ НЕ ХВАТАЛО)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS settings (
+      guild_id TEXT PRIMARY KEY,
+      channel_id TEXT,
+      contractor_role_id TEXT,
+      manager_role_id TEXT
+    )
+  `);
+
 });
 
 export default db;
-

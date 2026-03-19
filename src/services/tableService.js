@@ -1,4 +1,3 @@
-
 import db from '../database/db.js';
 import {
   EmbedBuilder,
@@ -61,6 +60,7 @@ export async function buildTable(guildId) {
       }
     );
 
+  // ✅ ТОЛЬКО 3 КНОПКИ
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('online')
@@ -70,17 +70,12 @@ export async function buildTable(guildId) {
     new ButtonBuilder()
       .setCustomId('afk')
       .setLabel('Форс')
-      .setStyle(ButtonStyle.Secondary), // максимально "желтый"
+      .setStyle(ButtonStyle.Secondary),
 
     new ButtonBuilder()
       .setCustomId('offline')
       .setLabel('Оффлайн')
-      .setStyle(ButtonStyle.Danger),
-
-    new ButtonBuilder()
-      .setCustomId('time')
-      .setLabel('Прайм-тайм')
-      .setStyle(ButtonStyle.Primary)
+      .setStyle(ButtonStyle.Danger)
   );
 
   return {
@@ -88,4 +83,3 @@ export async function buildTable(guildId) {
     components: [row]
   };
 }
-
