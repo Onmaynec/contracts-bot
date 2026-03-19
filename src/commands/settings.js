@@ -1,44 +1,63 @@
-import { SlashCommandBuilder } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  ChannelType
+} from 'discord.js';
 import db from '../database/db.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('settings')
-    .setDescription('Настройка бота')
-    .addChannelOption(o =>
-      o.setName('channel')
-        .setDescription('Канал для таблиц')
-        .setRequired(true)
-    )
-    .addRoleOption(o =>
-      o.setName('contractor')
-        .setDescription('Роль исполнителя')
-        .setRequired(true)
-    )
-    .addRoleOption(o =>
-      o.setName('manager')
-        .setDescription('Роль менеджера')
-        .setRequired(true)
-    ),
+    .setDescription('Настройки бота')
+    .addRoleOption(option =>
+      option.setName('role1')
+        .setDescription('Роль 1')
+        .setRequired(true))
+    .addRoleOption(option =>
+      option.setName('role2')
+        .setDescription('Роль 2')
+        .setRequired(true))
+    .addChannelOption(option =>
+      option.setName('table_channel')
+        .setDescription('Канал таблицы')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(true))
+    .addChannelOption(option =>
+      option.setName('system_channel')
+        .setDescription('Канал для системных сообщений (обновления)')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(false)),
 
   async execute(interaction) {
-    const channel = interaction.options.getChannel('channel');
-    const contractor = interaction.options.getRole('contractor');
-    const manager = interaction.options.getRole('manager');
+    const role1 = interaction.options.getRole('role1');
+    const role2 = interaction.options.getRole('role2');
+    const tableChannel = interaction.options.getChannel('table_channel');
+    const systemChannel = interaction.options.getChannel('system_channel');
 
-    // ✅ Сначала отвечаем (или defer)
+    db.run(`
+      INSERT INTO settings (guild_id, role1, role2, table_channel_id, system_channel_id)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET
+      role1=?,
+      role2=?,
+      table_channel_id=?,
+      system_channel_id=?
+    `,
+    [
+      interaction.guild.id,
+      role1.id,
+      role2.id,
+      tableChannel.id,
+      systemChannel?.id || null,
+
+      role1.id,
+      role2.id,
+      tableChannel.id,
+      systemChannel?.id || null
+    ]);
+
     await interaction.reply({
-      content: 'Сохраняю настройки...',
+      content: '✅ Настройки сохранены',
       ephemeral: true
     });
-
-    // сохраняем в БД
-    db.run(`
-      INSERT OR REPLACE INTO settings (guild_id, channel_id, contractor_role_id, manager_role_id)
-      VALUES (?, ?, ?, ?)
-    `, [interaction.guild.id, channel.id, contractor.id, manager.id]);
-
-    // ✅ теперь можно редактировать
-    await interaction.editReply('✅ Настройки сохранены');
   }
 };

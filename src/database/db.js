@@ -37,9 +37,10 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS settings (
       guild_id TEXT PRIMARY KEY,
-      channel_id TEXT,
-      contractor_role_id TEXT,
-      manager_role_id TEXT
+      table_channel_id TEXT,
+      role1_id TEXT,
+      role2_id TEXT,
+      system_channel_id TEXT
     )
   `);
 

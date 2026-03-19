@@ -80,6 +80,45 @@ export default {
           const table = await buildTable(guildId);
           return interaction.update(table);
         }
+
+        // 📢 ПОДТВЕРЖДЕНИЕ
+        if (interaction.customId === 'broadcast_confirm') {
+          const embed = interaction.client.broadcastCache;
+
+          for (const guild of interaction.client.guilds.cache.values()) {
+            const row = await new Promise((resolve) => {
+              db.get(
+                'SELECT system_channel_id FROM settings WHERE guild_id=?',
+                [guild.id],
+                (err, row) => resolve(row)
+              );
+            });
+
+            if (!row || !row.system_channel_id) continue;
+
+            const channel = guild.channels.cache.get(row.system_channel_id);
+            if (!channel) continue;
+
+            try {
+              await channel.send({ embeds: [embed] });
+            } catch {}
+          }
+
+          return interaction.update({
+            content: '✅ Отправлено во все сервера',
+            embeds: [],
+            components: []
+          });
+        }
+
+// ❌ ОТМЕНА
+if (interaction.customId === 'broadcast_cancel') {
+  return interaction.update({
+    content: '❌ Отменено',
+    embeds: [],
+    components: []
+  });
+}
       }
 
       // =========================
@@ -158,6 +197,48 @@ export default {
             content: '🟡 Форс поставлен',
             ephemeral: true
           });
+        }
+
+        // 📢 BROADCAST
+        if (interaction.customId === 'broadcast_modal') {
+          const title = interaction.fields.getTextInputValue('title');
+          const description = interaction.fields.getTextInputValue('description');
+          const changesRaw = interaction.fields.getTextInputValue('changes');
+
+          const changes = changesRaw
+            .split('\n')
+            .map(line => `• ${line}`)
+            .join('\n');
+
+          const embed = new EmbedBuilder()
+            .setTitle(`🚀 ${title}`)
+            .setDescription(description)
+            .addFields({
+              name: '📌 Изменения',
+              value: changes
+            })
+            .setColor(0x2ecc71);
+
+          // 🔍 ПРЕДПРОСМОТР
+          await interaction.reply({
+            content: '👀 Предпросмотр. Отправить?',
+            embeds: [embed],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId('broadcast_confirm')
+                  .setLabel('Отправить')
+                  .setStyle(3),
+                new ButtonBuilder()
+                  .setCustomId('broadcast_cancel')
+                  .setLabel('Отмена')
+                  .setStyle(4)
+              )
+            ],
+            ephemeral: true
+          });
+
+          interaction.client.broadcastCache = embed;
         }
       }
 

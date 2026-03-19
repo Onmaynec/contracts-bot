@@ -1,29 +1,20 @@
 import {
   SlashCommandBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
   EmbedBuilder
 } from 'discord.js';
+import db from '../database/db.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('broadcast')
-    .setDescription('Рассылка обновления')
-    .addStringOption(o =>
-      o.setName('title')
-        .setDescription('Заголовок')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('description')
-        .setDescription('Описание')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('changes')
-        .setDescription('Список изменений (каждое с новой строки)')
-        .setRequired(true)
-    ),
+    .setDescription('Рассылка обновления'),
 
   async execute(interaction) {
+    // 🔒 только ты
     if (interaction.user.id !== '870408185620615212') {
       return interaction.reply({
         content: '❌ Нет доступа',
@@ -31,56 +22,34 @@ export default {
       });
     }
 
-    const title = interaction.options.getString('title');
-    const description = interaction.options.getString('description');
-    const changesRaw = interaction.options.getString('changes');
+    const modal = new ModalBuilder()
+      .setCustomId('broadcast_modal')
+      .setTitle('Создать обновление');
 
-    // превращаем список в формат embed
-    const changes = changesRaw
-      .split('\n')
-      .map(line => `• ${line}`)
-      .join('\n');
+    const title = new TextInputBuilder()
+      .setCustomId('title')
+      .setLabel('Заголовок')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
 
-    await interaction.reply({
-      content: '📡 Рассылка...',
-      ephemeral: true
-    });
+    const description = new TextInputBuilder()
+      .setCustomId('description')
+      .setLabel('Описание')
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true);
 
-    let success = 0;
-    let failed = 0;
+    const changes = new TextInputBuilder()
+      .setCustomId('changes')
+      .setLabel('Список изменений (каждое с новой строки)')
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true);
 
-    const embed = new EmbedBuilder()
-      .setTitle(`🚀 ${title}`)
-      .setDescription(description)
-      .addFields({
-        name: '📌 Изменения',
-        value: changes
-      })
-      .setColor(0x00ff99)
-      .setFooter({ text: 'MorzContract' })
-      .setTimestamp();
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(title),
+      new ActionRowBuilder().addComponents(description),
+      new ActionRowBuilder().addComponents(changes)
+    );
 
-    for (const guild of interaction.client.guilds.cache.values()) {
-      try {
-        const channel = guild.systemChannel;
-
-        if (
-          !channel ||
-          !channel.permissionsFor(guild.members.me).has('SendMessages')
-        ) {
-          failed++;
-          continue;
-        }
-
-        await channel.send({ embeds: [embed] });
-        success++;
-      } catch {
-        failed++;
-      }
-    }
-
-    await interaction.editReply({
-      content: `✅ Готово\nУспешно: ${success}\nОшибки: ${failed}`
-    });
+    await interaction.showModal(modal);
   }
 };
