@@ -1,11 +1,11 @@
-import db from '../database/db.js';
-import { buildTable } from '../services/tableService.js';
-import { EmbedBuilder } from 'discord.js';
 import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder
 } from 'discord.js';
 
 export default {
@@ -84,7 +84,10 @@ export default {
 
         // 📢 ПОДТВЕРЖДЕНИЕ
         if (interaction.customId === 'broadcast_confirm') {
-          const embed = interaction.client.broadcastCache;
+          const embed = interaction.client.broadcastCache?.[interaction.user.id];
+          if (!embed) {
+            return interaction.reply({ content: '❌ Кэш не найден', ephemeral: true });
+          }
 
           for (const guild of interaction.client.guilds.cache.values()) {
             const row = await new Promise((resolve) => {
@@ -229,17 +232,21 @@ if (interaction.customId === 'broadcast_cancel') {
                 new ButtonBuilder()
                   .setCustomId('broadcast_confirm')
                   .setLabel('Отправить')
-                  .setStyle(3),
+                  .setStyle(ButtonStyle.Success),
                 new ButtonBuilder()
                   .setCustomId('broadcast_cancel')
                   .setLabel('Отмена')
-                  .setStyle(4)
+                  .setStyle(ButtonStyle.Success)
               )
             ],
             ephemeral: true
           });
 
-          interaction.client.broadcastCache = embed;
+          if (!interaction.client.broadcastCache) {
+            interaction.client.broadcastCache = {};
+          }
+
+          interaction.client.broadcastCache[interaction.user.id] = embed;
         }
       }
 
