@@ -9,11 +9,13 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
 });
 
 // =========================
-// 📦 ИНИЦИАЛИЗАЦИЯ БД
+// 🚀 ИНИЦИАЛИЗАЦИЯ БД
 // =========================
 db.serialize(() => {
 
-  // 👤 таблица пользователей
+  // =========================
+  // 👤 ТАБЛИЦА USERS
+  // =========================
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,13 +29,14 @@ db.serialize(() => {
     )
   `);
 
-  // 🔒 уникальность (фикс дублей)
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_user_guild
     ON users(user_id, guild_id)
   `);
 
-  // ⚙️ таблица настроек (ВОТ ЧЕГО ТЕБЕ НЕ ХВАТАЛО)
+  // =========================
+  // ⚙️ ТАБЛИЦА SETTINGS
+  // =========================
   db.run(`
     CREATE TABLE IF NOT EXISTS settings (
       guild_id TEXT PRIMARY KEY,
@@ -43,6 +46,27 @@ db.serialize(() => {
       system_channel_id TEXT
     )
   `);
+
+  // =========================
+  // 🔧 МИГРАЦИЯ (если старая БД)
+  // =========================
+  const columns = [
+    { name: 'table_channel_id', type: 'TEXT' },
+    { name: 'role1_id', type: 'TEXT' },
+    { name: 'role2_id', type: 'TEXT' },
+    { name: 'system_channel_id', type: 'TEXT' }
+  ];
+
+  columns.forEach(col => {
+    db.run(
+      `ALTER TABLE settings ADD COLUMN ${col.name} ${col.type}`,
+      (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+          console.error(`Ошибка добавления колонки ${col.name}:`, err.message);
+        }
+      }
+    );
+  });
 
 });
 
