@@ -24,7 +24,7 @@ export default {
     ),
 
   async execute(interaction) {
-    if (interaction.user.id !== 'ТВОЙ_DISCORD_ID') {
+    if (interaction.user.id !== '870408185620615212') {
       return interaction.reply({
         content: '❌ Нет доступа',
         ephemeral: true
