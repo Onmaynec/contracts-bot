@@ -1,3 +1,5 @@
+import db from '../database/db.js';
+import { buildTable } from '../services/tableService.js';
 import {
   ModalBuilder,
   TextInputBuilder,
@@ -15,12 +17,12 @@ export default {
   async execute(interaction) {
     try {
       // =========================
-      // 💬 КОМАНДЫ
+      // 💬 SLASH КОМАНДЫ
       // =========================
       if (interaction.isChatInputCommand()) {
         const command = interaction.client.commands.get(interaction.commandName);
         if (command) {
-          await command.execute(interaction);
+          return await command.execute(interaction);
         }
       }
 
@@ -31,11 +33,11 @@ export default {
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
 
-        // 🟢 ОНЛАЙН → МОДАЛКА
+        // 🟢 ONLINE
         if (interaction.customId === 'online') {
           const modal = new ModalBuilder()
             .setCustomId(`online_modal_${interaction.message.id}`)
-            .setTitle('Укажи прайм-тайм');
+            .setTitle('Укажи время');
 
           const input = new TextInputBuilder()
             .setCustomId('time_input')
@@ -44,15 +46,14 @@ export default {
             .setRequired(true);
 
           modal.addComponents(new ActionRowBuilder().addComponents(input));
-
           return interaction.showModal(modal);
         }
 
-        // 🟡 ФОРС → МОДАЛКА
+        // 🟡 AFK
         if (interaction.customId === 'afk') {
           const modal = new ModalBuilder()
             .setCustomId(`afk_modal_${interaction.message.id}`)
-            .setTitle('Форс-мажор');
+            .setTitle('Причина форса');
 
           const input = new TextInputBuilder()
             .setCustomId('reason_input')
@@ -61,11 +62,10 @@ export default {
             .setRequired(true);
 
           modal.addComponents(new ActionRowBuilder().addComponents(input));
-
           return interaction.showModal(modal);
         }
 
-        // 🔴 ОФФЛАЙН
+        // 🔴 OFFLINE
         if (interaction.customId === 'offline') {
           const name = interaction.member.displayName;
           const today = new Date().toLocaleDateString('ru-RU');
@@ -82,15 +82,24 @@ export default {
           return interaction.update(table);
         }
 
-        // 📢 ПОДТВЕРЖДЕНИЕ
+        // =========================
+        // 📢 ПОДТВЕРЖДЕНИЕ BROADCAST
+        // =========================
         if (interaction.customId === 'broadcast_confirm') {
           const embed = interaction.client.broadcastCache?.[interaction.user.id];
+
           if (!embed) {
-            return interaction.reply({ content: '❌ Кэш не найден', ephemeral: true });
+            return interaction.reply({
+              content: '❌ Кэш не найден',
+              ephemeral: true
+            });
           }
 
+          let success = 0;
+          let fail = 0;
+
           for (const guild of interaction.client.guilds.cache.values()) {
-            const row = await new Promise((resolve) => {
+            const row = await new Promise(resolve => {
               db.get(
                 'SELECT system_channel_id FROM settings WHERE guild_id=?',
                 [guild.id],
@@ -98,31 +107,33 @@ export default {
               );
             });
 
-            if (!row || !row.system_channel_id) continue;
+            if (!row?.system_channel_id) continue;
 
             const channel = guild.channels.cache.get(row.system_channel_id);
             if (!channel) continue;
 
             try {
               await channel.send({ embeds: [embed] });
-            } catch {}
+              success++;
+            } catch {
+              fail++;
+            }
           }
 
           return interaction.update({
-            content: '✅ Отправлено во все сервера',
+            content: `✅ Готово\nУспешно: ${success}\nОшибки: ${fail}`,
             embeds: [],
             components: []
           });
         }
 
-// ❌ ОТМЕНА
-if (interaction.customId === 'broadcast_cancel') {
-  return interaction.update({
-    content: '❌ Отменено',
-    embeds: [],
-    components: []
-  });
-}
+        if (interaction.customId === 'broadcast_cancel') {
+          return interaction.update({
+            content: '❌ Отменено',
+            embeds: [],
+            components: []
+          });
+        }
       }
 
       // =========================
@@ -139,17 +150,16 @@ if (interaction.customId === 'broadcast_cancel') {
             db.run(sql, params, err => (err ? reject(err) : resolve()))
           );
 
-        // 🟢 ОНЛАЙН
+        // 🟢 ONLINE
         if (interaction.customId.startsWith('online_modal_')) {
           const messageId = interaction.customId.split('_')[2];
           const time = interaction.fields.getTextInputValue('time_input');
 
-          // 🔒 ВАЛИДАЦИЯ ВРЕМЕНИ
-          const timeRegex = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+          const regex = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
 
-          if (!timeRegex.test(time)) {
+          if (!regex.test(time)) {
             return interaction.reply({
-              content: '❌ Неверный формат времени!\nПример: 10:00-22:00',
+              content: '❌ Неверный формат! Пример: 10:00-22:00',
               ephemeral: true
             });
           }
@@ -174,8 +184,11 @@ if (interaction.customId === 'broadcast_cancel') {
           );
 
           const table = await buildTable(guildId);
-          const msg = await interaction.channel.messages.fetch(messageId);
-          if (msg) await msg.edit(table);
+
+          try {
+            const msg = await interaction.channel.messages.fetch(messageId);
+            if (msg) await msg.edit(table);
+          } catch {}
 
           return interaction.reply({
             content: '✅ Ты в онлайне',
@@ -183,7 +196,7 @@ if (interaction.customId === 'broadcast_cancel') {
           });
         }
 
-        // 🟡 ФОРС
+        // 🟡 AFK
         if (interaction.customId.startsWith('afk_modal_')) {
           const messageId = interaction.customId.split('_')[2];
           const reason = interaction.fields.getTextInputValue('reason_input');
@@ -194,8 +207,11 @@ if (interaction.customId === 'broadcast_cancel') {
           );
 
           const table = await buildTable(guildId);
-          const msg = await interaction.channel.messages.fetch(messageId);
-          if (msg) await msg.edit(table);
+
+          try {
+            const msg = await interaction.channel.messages.fetch(messageId);
+            if (msg) await msg.edit(table);
+          } catch {}
 
           return interaction.reply({
             content: '🟡 Форс поставлен',
@@ -223,9 +239,14 @@ if (interaction.customId === 'broadcast_cancel') {
             })
             .setColor(0x2ecc71);
 
-          // 🔍 ПРЕДПРОСМОТР
-          await interaction.reply({
-            content: '👀 Предпросмотр. Отправить?',
+          if (!interaction.client.broadcastCache) {
+            interaction.client.broadcastCache = {};
+          }
+
+          interaction.client.broadcastCache[interaction.user.id] = embed;
+
+          return interaction.reply({
+            content: '👀 Предпросмотр',
             embeds: [embed],
             components: [
               new ActionRowBuilder().addComponents(
@@ -236,17 +257,11 @@ if (interaction.customId === 'broadcast_cancel') {
                 new ButtonBuilder()
                   .setCustomId('broadcast_cancel')
                   .setLabel('Отмена')
-                  .setStyle(ButtonStyle.Success)
+                  .setStyle(ButtonStyle.Danger)
               )
             ],
             ephemeral: true
           });
-
-          if (!interaction.client.broadcastCache) {
-            interaction.client.broadcastCache = {};
-          }
-
-          interaction.client.broadcastCache[interaction.user.id] = embed;
         }
       }
 
