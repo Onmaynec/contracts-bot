@@ -1,5 +1,6 @@
 import db from '../database/db.js';
 import { buildTable } from '../services/tableService.js';
+import { EmbedBuilder } from 'discord.js';
 import {
   ModalBuilder,
   TextInputBuilder,
