@@ -14,7 +14,7 @@ export default {
 
     // ✅ СНАЧАЛА ОБЯЗАТЕЛЬНОЕ
     .addIntegerOption(option =>
-      option.setName('count')
+      option.setName('amount')
         .setDescription('Количество сообщений')
         .setRequired(true)
         .setMinValue(1)
