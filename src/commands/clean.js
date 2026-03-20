@@ -11,11 +11,8 @@ export default {
   data: new SlashCommandBuilder()
     .setName('clean')
     .setDescription('Удалить сообщения')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('Пользователь')
-        .setRequired(false)
-    )
+
+    // ✅ СНАЧАЛА ОБЯЗАТЕЛЬНОЕ
     .addIntegerOption(option =>
       option.setName('count')
         .setDescription('Количество сообщений')
@@ -23,11 +20,20 @@ export default {
         .setMinValue(1)
         .setMaxValue(100)
     )
+
+    // ❗ ПОТОМ НЕОБЯЗАТЕЛЬНЫЕ
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('Пользователь')
+        .setRequired(false)
+    )
+
     .addBooleanOption(option =>
       option.setName('bot_only')
         .setDescription('Удалять только сообщения бота')
         .setRequired(false)
     )
+
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   async execute(interaction) {
