@@ -52,12 +52,12 @@ export default {
     // 🔘 КНОПКИ ПОДТВЕРЖДЕНИЯ
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`clean_confirm_${interaction.id}`)
+        .setCustomId(`clean_confirm_${interaction.user.id}_${count}_${user?.id || 'all'}_${botOnly ? 1 : 0}`)
         .setLabel('Подтвердить')
         .setStyle(ButtonStyle.Danger),
 
       new ButtonBuilder()
-        .setCustomId(`clean_cancel_${interaction.id}`)
+        .setCustomId(`clean_cancel_${interaction.user.id}`)
         .setLabel('Отмена')
         .setStyle(ButtonStyle.Secondary)
     );

@@ -7,7 +7,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  EmbedBuilder
+  EmbedBuilder,
+  PermissionsBitField
 } from 'discord.js';
 
 export default {
@@ -16,10 +17,82 @@ export default {
 
   async execute(interaction) {
     try {
+
       // =========================
       // 💬 SLASH КОМАНДЫ
       // =========================
       if (interaction.isChatInputCommand()) {
+
+        // 🚀 /broadcast → открываем модалку
+        if (interaction.commandName === 'broadcast') {
+
+          const modal = new ModalBuilder()
+            .setCustomId('broadcast_modal')
+            .setTitle('Создать рассылку');
+
+          const title = new TextInputBuilder()
+            .setCustomId('title')
+            .setLabel('Заголовок')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+          const description = new TextInputBuilder()
+            .setCustomId('description')
+            .setLabel('Описание')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true);
+
+          const changes = new TextInputBuilder()
+            .setCustomId('changes')
+            .setLabel('Изменения (каждая строка — пункт)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true);
+
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(title),
+            new ActionRowBuilder().addComponents(description),
+            new ActionRowBuilder().addComponents(changes)
+          );
+
+          return interaction.showModal(modal);
+        }
+
+        // 🧹 /clean
+        if (interaction.commandName === 'clean') {
+
+          if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            return interaction.reply({ content: '❌ Нет прав', ephemeral: true });
+          }
+
+          const user = interaction.options.getUser('user');
+          const amount = interaction.options.getInteger('amount');
+
+          if (!amount || amount < 1 || amount > 100) {
+            return interaction.reply({
+              content: '❌ Укажи число от 1 до 100',
+              ephemeral: true
+            });
+          }
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`clean_confirm_${user ? user.id : 'all'}_${amount}`)
+              .setLabel('Подтвердить')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId('clean_cancel')
+              .setLabel('Отмена')
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          return interaction.reply({
+            content: `⚠️ Удалить ${amount} сообщений${user ? ` пользователя ${user.tag}` : ''}?`,
+            components: [row],
+            ephemeral: true
+          });
+        }
+
+        // остальные команды
         const command = interaction.client.commands.get(interaction.commandName);
         if (command) {
           return await command.execute(interaction);
@@ -30,6 +103,7 @@ export default {
       // 🔘 КНОПКИ
       // =========================
       if (interaction.isButton()) {
+
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
 
@@ -53,7 +127,7 @@ export default {
         if (interaction.customId === 'afk') {
           const modal = new ModalBuilder()
             .setCustomId(`afk_modal_${interaction.message.id}`)
-            .setTitle('Причина форса');
+            .setTitle('Причина');
 
           const input = new TextInputBuilder()
             .setCustomId('reason_input')
@@ -70,11 +144,11 @@ export default {
           const name = interaction.member.displayName;
           const today = new Date().toLocaleDateString('ru-RU');
 
-          await new Promise((resolve, reject) => {
+          await new Promise((res, rej) => {
             db.run(
               `UPDATE users SET status=?, name=?, date=? WHERE user_id=? AND guild_id=?`,
               ['offline', name, today, userId, guildId],
-              err => (err ? reject(err) : resolve())
+              err => err ? rej(err) : res()
             );
           });
 
@@ -83,45 +157,35 @@ export default {
         }
 
         // =========================
-        // 📢 ПОДТВЕРЖДЕНИЕ BROADCAST
+        // 📢 BROADCAST
         // =========================
         if (interaction.customId === 'broadcast_confirm') {
-          const embed = interaction.client.broadcastCache?.[interaction.user.id];
 
-          if (!embed) {
-            return interaction.reply({
-              content: '❌ Кэш не найден',
-              ephemeral: true
-            });
-          }
+          const embed = interaction.client.broadcastCache?.[userId];
+          if (!embed) return interaction.update({ content: '❌ Нет данных', components: [], embeds: [] });
 
           let success = 0;
-          let fail = 0;
 
           for (const guild of interaction.client.guilds.cache.values()) {
-            const row = await new Promise(resolve => {
-              db.get(
-                'SELECT system_channel_id FROM settings WHERE guild_id=?',
-                [guild.id],
-                (err, row) => resolve(row)
-              );
+            const settings = await new Promise(res => {
+              db.get('SELECT * FROM settings WHERE guild_id=?', [guild.id], (_, row) => res(row));
             });
 
-            if (!row?.system_channel_id) continue;
+            if (!settings?.system_channel_id) continue;
 
-            const channel = guild.channels.cache.get(row.system_channel_id);
+            const channel = guild.channels.cache.get(settings.system_channel_id);
             if (!channel) continue;
 
             try {
               await channel.send({ embeds: [embed] });
               success++;
-            } catch {
-              fail++;
-            }
+            } catch {}
           }
 
+          delete interaction.client.broadcastCache[userId];
+
           return interaction.update({
-            content: `✅ Готово\nУспешно: ${success}\nОшибки: ${fail}`,
+            content: `✅ Отправлено: ${success}`,
             embeds: [],
             components: []
           });
@@ -136,85 +200,34 @@ export default {
         }
 
         // =========================
-        // 🧹 CLEAN ПОДТВЕРЖДЕНИЕ
+        // 🧹 CLEAN
         // =========================
-        if (interaction.customId.startsWith('clean_confirm_')) {
-          const originalInteraction = interaction;
+        if (interaction.customId.startsWith('clean_confirm')) {
 
-          const user = originalInteraction.message.interaction?.options.getUser('user');
-          const count = originalInteraction.message.interaction?.options.getInteger('count');
-          const botOnly = originalInteraction.message.interaction?.options.getBoolean('bot_only');
+          const [, , targetId, amountStr] = interaction.customId.split('_');
+          const amount = parseInt(amountStr);
 
-          const channel = interaction.channel;
+          const messages = await interaction.channel.messages.fetch({ limit: 100 });
 
-          await interaction.update({ content: '⏳ Удаление...', components: [] });
+          let filtered = messages;
 
-          try {
-            const messages = await channel.messages.fetch({ limit: 100 });
-
-            let filtered = messages;
-
-            if (user) {
-              filtered = filtered.filter(msg => msg.author.id === user.id);
-            }
-
-            if (botOnly) {
-              filtered = filtered.filter(msg => msg.author.bot);
-            }
-
-            const toDelete = filtered.first(count);
-
-            const now = Date.now();
-            const validMessages = toDelete.filter(
-              msg => now - msg.createdTimestamp < 14 * 24 * 60 * 60 * 1000
-            );
-
-            await channel.bulkDelete(validMessages, true);
-
-            // 📊 СТАТИСТИКА
-            const resultText = `✅ Успешно удалено ${validMessages.length} сообщений`;
-
-            // 🧠 ЛОГ В SYSTEM CHANNEL
-            const settings = await new Promise(resolve => {
-              db.get(
-                'SELECT system_channel_id FROM settings WHERE guild_id=?',
-                [interaction.guild.id],
-                (err, row) => resolve(row)
-              );
-            });
-
-            if (settings?.system_channel_id) {
-              const logChannel = interaction.guild.channels.cache.get(settings.system_channel_id);
-
-              if (logChannel) {
-                logChannel.send({
-                  content:
-                    `🧹 Очистка сообщений\n` +
-                    `Модератор: ${interaction.user}\n` +
-                    `Канал: ${channel}\n` +
-                    `Удалено: ${validMessages.length}`
-                });
-              }
-            }
-
-            return interaction.followUp({
-              content: resultText,
-              ephemeral: true
-            });
-
-          } catch (err) {
-            console.error(err);
-            return interaction.followUp({
-              content: '❌ Ошибка при удалении',
-              ephemeral: true
-            });
+          if (targetId !== 'all') {
+            filtered = messages.filter(m => m.author.id === targetId);
           }
+
+          const toDelete = Array.from(filtered.values()).slice(0, amount);
+
+          await interaction.channel.bulkDelete(toDelete, true);
+
+          return interaction.update({
+            content: `✅ Удалено ${toDelete.length} сообщений`,
+            components: []
+          });
         }
 
-        // ❌ ОТМЕНА
-        if (interaction.customId.startsWith('clean_cancel_')) {
+        if (interaction.customId === 'clean_cancel') {
           return interaction.update({
-            content: '❌ Удаление отменено',
+            content: '❌ Отменено',
             components: []
           });
         }
@@ -224,18 +237,18 @@ export default {
       // 📥 МОДАЛКИ
       // =========================
       if (interaction.isModalSubmit()) {
+
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
         const name = interaction.member.displayName;
         const today = new Date().toLocaleDateString('ru-RU');
 
         const run = (sql, params) =>
-          new Promise((resolve, reject) =>
-            db.run(sql, params, err => (err ? reject(err) : resolve()))
-          );
+          new Promise((res, rej) => db.run(sql, params, err => err ? rej(err) : res()));
 
         // 🟢 ONLINE
         if (interaction.customId.startsWith('online_modal_')) {
+
           const messageId = interaction.customId.split('_')[2];
           const time = interaction.fields.getTextInputValue('time_input');
 
@@ -243,7 +256,7 @@ export default {
 
           if (!regex.test(time)) {
             return interaction.reply({
-              content: '❌ Неверный формат! Пример: 10:00-22:00',
+              content: '❌ Формат: 10:00-22:00',
               ephemeral: true
             });
           }
@@ -253,18 +266,7 @@ export default {
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(user_id, guild_id)
              DO UPDATE SET status=?, time=?, name=?, date=?, reason=NULL`,
-            [
-              userId,
-              guildId,
-              name,
-              'online',
-              time,
-              today,
-              'online',
-              time,
-              name,
-              today
-            ]
+            [userId, guildId, name, 'online', time, today, 'online', time, name, today]
           );
 
           const table = await buildTable(guildId);
@@ -274,14 +276,12 @@ export default {
             if (msg) await msg.edit(table);
           } catch {}
 
-          return interaction.reply({
-            content: '✅ Ты в онлайне',
-            ephemeral: true
-          });
+          return interaction.reply({ content: '✅ Онлайн установлен', ephemeral: true });
         }
 
         // 🟡 AFK
         if (interaction.customId.startsWith('afk_modal_')) {
+
           const messageId = interaction.customId.split('_')[2];
           const reason = interaction.fields.getTextInputValue('reason_input');
 
@@ -297,37 +297,29 @@ export default {
             if (msg) await msg.edit(table);
           } catch {}
 
-          return interaction.reply({
-            content: '🟡 Форс поставлен',
-            ephemeral: true
-          });
+          return interaction.reply({ content: '🟡 Форс установлен', ephemeral: true });
         }
 
         // 📢 BROADCAST
         if (interaction.customId === 'broadcast_modal') {
+
           const title = interaction.fields.getTextInputValue('title');
           const description = interaction.fields.getTextInputValue('description');
           const changesRaw = interaction.fields.getTextInputValue('changes');
 
-          const changes = changesRaw
-            .split('\n')
-            .map(line => `• ${line}`)
-            .join('\n');
+          const changes = changesRaw.split('\n').map(x => `• ${x}`).join('\n');
 
           const embed = new EmbedBuilder()
             .setTitle(`🚀 ${title}`)
             .setDescription(description)
-            .addFields({
-              name: '📌 Изменения',
-              value: changes
-            })
+            .addFields({ name: '📌 Изменения', value: changes })
             .setColor(0x2ecc71);
 
           if (!interaction.client.broadcastCache) {
             interaction.client.broadcastCache = {};
           }
 
-          interaction.client.broadcastCache[interaction.user.id] = embed;
+          interaction.client.broadcastCache[userId] = embed;
 
           return interaction.reply({
             content: '👀 Предпросмотр',
@@ -355,10 +347,7 @@ export default {
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply({ content: '❌ Ошибка' });
       } else {
-        await interaction.reply({
-          content: '❌ Ошибка',
-          ephemeral: true
-        });
+        await interaction.reply({ content: '❌ Ошибка', ephemeral: true });
       }
     }
   }
