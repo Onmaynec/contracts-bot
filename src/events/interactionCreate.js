@@ -147,6 +147,59 @@ export default {
           return interaction.showModal(modal);
         }
 
+        // 📢 BROADCAST CONFIRM
+        if (interaction.customId === 'broadcast_confirm') {
+          const embed = interaction.client.broadcastCache?.[interaction.user.id];
+
+          if (!embed) {
+            return interaction.reply({
+              content: '❌ Кэш не найден',
+              ephemeral: true
+            });
+          }
+
+          await interaction.deferUpdate(); // ВАЖНО чтобы не было ошибки взаимодействия
+
+          let success = 0;
+          let fail = 0;
+
+          for (const guild of interaction.client.guilds.cache.values()) {
+            const row = await new Promise(resolve => {
+              db.get(
+                'SELECT system_channel_id FROM settings WHERE guild_id=?',
+                [guild.id],
+                (err, row) => resolve(row)
+              );
+            });
+
+            if (!row?.system_channel_id) continue;
+
+            const channel = guild.channels.cache.get(row.system_channel_id);
+            if (!channel) continue;
+
+            try {
+              await channel.send({ embeds: [embed] });
+              success++;
+            } catch {
+              fail++;
+            }
+          }
+
+          return interaction.editReply({
+            content: `✅ Отправлено\nУспешно: ${success}\nОшибки: ${fail}`,
+            embeds: [],
+            components: []
+          });
+        }
+
+        if (interaction.customId === 'broadcast_cancel') {
+          return interaction.update({
+            content: '❌ Отменено',
+            embeds: [],
+            components: []
+          });
+        }
+        
         // 🟡 AFK
         if (interaction.customId === 'afk') {
           const modal = new ModalBuilder()
