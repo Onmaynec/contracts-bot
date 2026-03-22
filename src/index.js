@@ -10,7 +10,9 @@ import { buildTable } from './services/tableService.js';
 import db from './database/db.js';
 import { getMoscowTime } from './utils/time.js';
 
-
+db.run(`ALTER TABLE settings ADD COLUMN log_channel_id TEXT`);
+db.run(`ALTER TABLE settings ADD COLUMN role1_id TEXT`);
+db.run(`ALTER TABLE settings ADD COLUMN role2_id TEXT`)
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
