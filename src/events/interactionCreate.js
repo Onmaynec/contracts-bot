@@ -11,6 +11,16 @@ import {
   PermissionsBitField
 } from 'discord.js';
 
+import { getMoscowDate, getMoscowTimeString } from '../utils/time.js';
+import { sendLog } from '../utils/logger.js';
+
+function formatStatus(status) {
+  if (status === 'online') return 'Online';
+  if (status === 'afk') return 'Fors';
+  if (status === 'offline') return 'Offline';
+  return 'Unknown';
+}
+
 export default {
   name: 'interactionCreate',
   once: false,
@@ -19,13 +29,11 @@ export default {
     try {
 
       // =========================
-      // 💬 SLASH КОМАНДЫ
+      // 💬 COMMANDS
       // =========================
       if (interaction.isChatInputCommand()) {
 
-        // 🚀 /broadcast → открываем модалку
         if (interaction.commandName === 'broadcast') {
-
           const modal = new ModalBuilder()
             .setCustomId('broadcast_modal')
             .setTitle('Создать рассылку');
@@ -44,7 +52,7 @@ export default {
 
           const changes = new TextInputBuilder()
             .setCustomId('changes')
-            .setLabel('Изменения (каждая строка — пункт)')
+            .setLabel('Изменения (каждая строка)')
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(true);
 
@@ -57,7 +65,6 @@ export default {
           return interaction.showModal(modal);
         }
 
-        // 🧹 /clean
         if (interaction.commandName === 'clean') {
 
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
@@ -86,26 +93,43 @@ export default {
           );
 
           return interaction.reply({
-            content: `⚠️ Удалить ${amount} сообщений${user ? ` пользователя ${user.tag}` : ''}?`,
+            content: `⚠️ Удалить ${amount} сообщений?`,
             components: [row],
             ephemeral: true
           });
         }
 
-        // остальные команды
         const command = interaction.client.commands.get(interaction.commandName);
-        if (command) {
-          return await command.execute(interaction);
-        }
+        if (command) return await command.execute(interaction);
       }
 
       // =========================
-      // 🔘 КНОПКИ
+      // 🔘 BUTTONS
       // =========================
       if (interaction.isButton()) {
 
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
+        const name = interaction.member.displayName;
+
+        // получаем старые данные
+        const old = await new Promise(res => {
+          db.get(
+            'SELECT * FROM users WHERE user_id=? AND guild_id=?',
+            [userId, guildId],
+            (_, row) => res(row)
+          );
+        });
+
+        const settings = await new Promise(res => {
+          db.get(
+            'SELECT role2_id FROM settings WHERE guild_id=?',
+            [guildId],
+            (_, row) => res(row)
+          );
+        });
+
+        const role2 = settings?.role2_id ? `<@&${settings.role2_id}>` : '';
 
         // 🟢 ONLINE
         if (interaction.customId === 'online') {
@@ -141,74 +165,34 @@ export default {
 
         // 🔴 OFFLINE
         if (interaction.customId === 'offline') {
-          const name = interaction.member.displayName;
-          const today = new Date().toLocaleDateString('ru-RU');
 
-          await new Promise((res, rej) => {
+          await new Promise(res => {
             db.run(
-              `UPDATE users SET status=?, name=?, date=? WHERE user_id=? AND guild_id=?`,
-              ['offline', name, today, userId, guildId],
-              err => err ? rej(err) : res()
+              `UPDATE users SET status=?, date=? WHERE user_id=? AND guild_id=?`,
+              ['offline', getMoscowDate(), userId, guildId],
+              () => res()
             );
           });
+
+          await sendLog(interaction.guild,
+`📕 Пользователь ${name} изменил статус:
+
+${name} | ${old?.time || '-'} (${formatStatus(old?.status)} → Offline)
+[${getMoscowTimeString()} ${getMoscowDate()}]
+
+${role2}`
+          );
 
           const table = await buildTable(guildId);
           return interaction.update(table);
         }
 
-        // =========================
-        // 📢 BROADCAST
-        // =========================
-        if (interaction.customId === 'broadcast_confirm') {
-
-          const embed = interaction.client.broadcastCache?.[userId];
-          if (!embed) return interaction.update({ content: '❌ Нет данных', components: [], embeds: [] });
-
-          let success = 0;
-
-          for (const guild of interaction.client.guilds.cache.values()) {
-            const settings = await new Promise(res => {
-              db.get('SELECT * FROM settings WHERE guild_id=?', [guild.id], (_, row) => res(row));
-            });
-
-            if (!settings?.system_channel_id) continue;
-
-            const channel = guild.channels.cache.get(settings.system_channel_id);
-            if (!channel) continue;
-
-            try {
-              await channel.send({ embeds: [embed] });
-              success++;
-            } catch {}
-          }
-
-          delete interaction.client.broadcastCache[userId];
-
-          return interaction.update({
-            content: `✅ Отправлено: ${success}`,
-            embeds: [],
-            components: []
-          });
-        }
-
-        if (interaction.customId === 'broadcast_cancel') {
-          return interaction.update({
-            content: '❌ Отменено',
-            embeds: [],
-            components: []
-          });
-        }
-
-        // =========================
-        // 🧹 CLEAN
-        // =========================
+        // CLEAN
         if (interaction.customId.startsWith('clean_confirm')) {
-
           const [, , targetId, amountStr] = interaction.customId.split('_');
           const amount = parseInt(amountStr);
 
           const messages = await interaction.channel.messages.fetch({ limit: 100 });
-
           let filtered = messages;
 
           if (targetId !== 'all') {
@@ -216,7 +200,6 @@ export default {
           }
 
           const toDelete = Array.from(filtered.values()).slice(0, amount);
-
           await interaction.channel.bulkDelete(toDelete, true);
 
           return interaction.update({
@@ -234,17 +217,34 @@ export default {
       }
 
       // =========================
-      // 📥 МОДАЛКИ
+      // 📥 MODALS
       // =========================
       if (interaction.isModalSubmit()) {
 
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
         const name = interaction.member.displayName;
-        const today = new Date().toLocaleDateString('ru-RU');
+
+        const old = await new Promise(res => {
+          db.get(
+            'SELECT * FROM users WHERE user_id=? AND guild_id=?',
+            [userId, guildId],
+            (_, row) => res(row)
+          );
+        });
+
+        const settings = await new Promise(res => {
+          db.get(
+            'SELECT role2_id FROM settings WHERE guild_id=?',
+            [guildId],
+            (_, row) => res(row)
+          );
+        });
+
+        const role2 = settings?.role2_id ? `<@&${settings.role2_id}>` : '';
 
         const run = (sql, params) =>
-          new Promise((res, rej) => db.run(sql, params, err => err ? rej(err) : res()));
+          new Promise(res => db.run(sql, params, () => res()));
 
         // 🟢 ONLINE
         if (interaction.customId.startsWith('online_modal_')) {
@@ -266,8 +266,26 @@ export default {
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(user_id, guild_id)
              DO UPDATE SET status=?, time=?, name=?, date=?, reason=NULL`,
-            [userId, guildId, name, 'online', time, today, 'online', time, name, today]
+            [userId, guildId, name, 'online', time, getMoscowDate(), 'online', time, name, getMoscowDate()]
           );
+
+          if (!old) {
+            await sendLog(interaction.guild,
+`📗 Пользователь ${name} записался в таблицу:
+
+${name} | ${time}
+[${getMoscowTimeString()} ${getMoscowDate()}]
+
+${role2}`);
+          } else {
+            await sendLog(interaction.guild,
+`📗 Пользователь ${name} изменил статус:
+
+${name} | ${time} (${formatStatus(old.status)} → Online)
+[${getMoscowTimeString()} ${getMoscowDate()}]
+
+${role2}`);
+          }
 
           const table = await buildTable(guildId);
 
@@ -289,6 +307,15 @@ export default {
             `UPDATE users SET status=?, reason=? WHERE user_id=? AND guild_id=?`,
             ['afk', reason, userId, guildId]
           );
+
+          await sendLog(interaction.guild,
+`📘 Пользователь ${name} изменил статус:
+
+${name} | ${old?.time || '-'} (${formatStatus(old?.status)} → Fors)
+Причина: ${reason}
+[${getMoscowTimeString()} ${getMoscowDate()}]
+
+${role2}`);
 
           const table = await buildTable(guildId);
 
